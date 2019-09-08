@@ -57,7 +57,7 @@ int main(int argc, char *argv[])
 
       // If no frame returned, then exit task.
       // Otherwise push frame onto FIFOWorkQueue and increment frame count.
-      if (!success || frames_produced == 90)
+      if (!success)
       {
         break;
       } else {
@@ -120,8 +120,8 @@ int main(int argc, char *argv[])
           // Increment processed frame count.
           frames_consumed++;
           // Periodic logging.
-          if (frames_consumed % 100 == 0) {
-            std::cout << "Consumed Frame: " << frames_consumed << std::endl;
+          if (frames_consumed % 10 == 0 && total_frames != -1) {
+            std::cout << "Consumed Frames: " << frames_consumed << " of " << total_frames << std::endl;
           }
         }
       }
