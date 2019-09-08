@@ -11,16 +11,28 @@ In this project, you can build your own C++ application starting with this repo,
   * All OSes: [click here for installation instructions](https://cmake.org/install/)
 * make >= 4.1 (Linux, Mac), 3.81 (Windows)
   * Linux: make is installed by default on most Linux distros
-  * Mac: [install Xcode command line tools to get make](https://developer.apple.com/xcode/features/)
-  * Windows: [Click here for installation instructions](http://gnuwin32.sourceforge.net/packages/make.htm)
 * gcc/g++ >= 5.4
   * Linux: gcc / g++ is installed by default on most Linux distros
-  * Mac: same deal as make - [install Xcode command line tools](https://developer.apple.com/xcode/features/)
-  * Windows: recommend using [MinGW](http://www.mingw.org/)
+* OpenCV
+  * Linux: [click here for installation instructions](https://docs.opencv.org/master/d7/d9f/tutorial_linux_install.html)
+* Boost
+  * Linux: [click here for installation instructions](https://www.boost.org/doc/libs/1_71_0/more/getting_started/unix-variants.html)
 
 ## Basic Build Instructions
 
 1. Clone this repo.
+2. Run the following commands to download object detection models
+```
+cd CppND-Capstone/model
+wget https://pjreddie.com/media/files/yolov3.weights
+wget https://github.com/pjreddie/darknet/blob/master/cfg/yolov3.cfg?raw=true -O ./yolov3.cfg
+```
 2. Make a build directory in the top level directory: `mkdir build && cd build`
 3. Compile: `cmake .. && make`
-4. Run it: `./HelloWorld`.
+4. Run it: 
+```
+./HelloWorld --input_fname=../videos/project_video.mp4 \ 
+             --output_fname=../videos/project_video_out.avi \
+             --model_config=../model/yolov3.cfg \
+             --model_weights=../model/yolov3.weights
+```
