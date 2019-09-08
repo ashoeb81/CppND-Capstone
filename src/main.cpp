@@ -7,216 +7,138 @@
 #include <boost/assert.hpp>
 
 #include <opencv2/opencv.hpp>
-#include <opencv2/dnn.hpp>
-#include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 
 #include "fifo_work_queue.h"
 #include "video_reader.h"
+#include "object_detector.h"
 
 using namespace std;
 using namespace boost::program_options;
 using namespace cv;
-using namespace dnn;
 
-float confThreshold = 0.5;
-float nmsThreshold = 0.4;
-
-// Remove the bounding boxes with low confidence using non-maxima suppression
-void postprocess(Mat& frame, const vector<Mat>& out);
-
-// Draw the predicted bounding box
-void drawPred(int classId, float conf, int left, int top, int right, int bottom, Mat& frame);
-
-int main(int argc, char* argv[]) {
-  // User input catpure.
+int main(int argc, char *argv[])
+{
+  // Capture and parse command line arguments using boost::program_options.
   options_description desc("Allowed options");
-    desc.add_options()
-      ("file_name", value<string>(), "pathname for output")
-      ;
-    variables_map vm;
-    store(parse_command_line(argc, argv, desc), vm);
-    notify(vm);
-    std::cout << "File Name: " << vm["file_name"].as<std::string>() << std::endl;
-  
-    // Create shared Queue
-    FIFOWorkQueue<Mat> mqueue;
-    VideoReader vreader(vm["file_name"].as<std::string>());
-    std::promise<int> prmsTotalFrames;
-    std::future<int> ftrTotalFrames = prmsTotalFrames.get_future();
+  desc.add_options()
+    ("input_fname", value<string>(), "Path to input video file to be processed.")
+    ("output_fname", value<string>(), "Path to save output video file.")
+    ("model_config", value<string>(), "Path to object detection model configuration file.")
+    ("model_weights", value<string>(), "Path to object detection model weights.");
+  variables_map vm;
+  store(parse_command_line(argc, argv, desc), vm);
+  notify(vm);
 
-    auto producer_future = std::async([&vreader, &mqueue, &prmsTotalFrames](const string& file_name){
-      
-      //VideoCapture cap(file_name);
-      int frames_produced = 0;
+  // Instantiate FIFOWorkQueue that will connect producer and consumer threads.
+  FIFOWorkQueue<Mat> queue;
 
-      // if (!cap.isOpened()) {
-      //   std::cout << "File not found!" << std::endl;
-      //   return -1;
-      // }
-      
-      Mat frame;
-      while(1) {
+  // Instantiate VideoReader that will read video file and push frames to the FIFOWorkQueue.
+  VideoReader vreader(vm["input_fname"].as<std::string>());
 
-        //cap >> frame;
-        vreader.grabNextFrame(frame);
-        
-        if (frame.empty()) {
-          break;
-        }
-        
-        mqueue.push(std::move(frame));
+  // Create promise/future pair that will be used by the producer to signal to the consumer
+  // the total number of frames that have been pushed to the work FIFOWorkQueue.
+  std::promise<int> prms;
+  std::future<int> ftr = prms.get_future();
+
+  // Producer asynchronous task uses VideoReader (vreader) to read video frames from a video
+  // file and then pushes those frames to the FIFOWorkQueue (queue).
+  auto producer_future = std::async([&vreader, &queue, &prms] {
+    // Counter keeps track of total frames read.
+    int frames_produced = 0;
+
+    // Holds frames read from video file.
+    Mat frame;
+
+    while (true)
+    {
+      // Read frame.
+      bool success = vreader.GrabNextFrame(frame);
+
+      // If no frame returned, then exit task.
+      // Otherwise push frame onto FIFOWorkQueue and increment frame count.
+      if (!success || frames_produced == 90)
+      {
+        break;
+      } else {
+        queue.Push(std::move(frame));
         frames_produced++;
       }
+    }
 
-      prmsTotalFrames.set_value(frames_produced);
-      std::cout << "Producer | Total Frames " << frames_produced << std::endl;
-      //cap.release();
-      return frames_produced;
-    
-    }, vm["file_name"].as<std::string>());
+    // Satisfy promise with total number of frames produced.
+    prms.set_value(frames_produced);
 
+    // return total number of frames produced.
+    return frames_produced;
+  });
 
-    // pass to the consumer a vector that will be populated with structs of detections.
-    // the struct should keep the name, frame, vector of detections.
-    auto consumer_future = std::async([&mqueue, &ftrTotalFrames](){
-      int frames_consumed = 0;
-      int total_frames = -1;
-      while (true) {
-        
-        // Wait for producer to signal total number of frames.
-        if (total_frames == -1) {
-          if (ftrTotalFrames.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout) {
-            total_frames = ftrTotalFrames.get();
-          }
-        }
+  // Instantiate ObjectDetector that will be used to detect objects in video frames.
+  ObjectDetector detector(vm["model_config"].as<std::string>(), vm["model_weights"].as<std::string>());
 
-        // If the consumer has pulled all the frames, then we are done.
-        if (frames_consumed == total_frames) {
-          break;
-        } else {
-          auto frame = mqueue.pop();
-          frames_consumed++;
+  // Consumer asynchronous task uses ObjectDetector (detector) to draw bounding boxes around detected objects
+  // in each video frame.  The task also writes the processed output files to a new output video file.
+  auto consumer_future = std::async([&detector, &queue, &ftr](std::string output_path, double fps, int four_cc, cv::Size frame_size) {
+    // Counter keeps track of frames processed.
+    int frames_consumed = 0;
+
+    // Total number of frames to be processed will be set when promise is fullfilled by producer task.
+    int total_frames = -1;
+
+    // Object managing writing frames to output video file.
+    VideoWriter out_video(output_path, four_cc, fps, frame_size);
+
+    while (true)
+    {
+
+      if (total_frames == -1)
+      {
+        // Wait for 50ms to see if future is ready and use value to determine total number of frames that need to be processed.
+        // If future is not ready, continue processing frames.
+        if (ftr.wait_for(std::chrono::milliseconds(50)) == std::future_status::ready)
+        {
+          total_frames = ftr.get();
         }
       }
-      std::cout << "Consumer | Total Frames: " << frames_consumed << std::endl;
-      return frames_consumed;
-    });     
-    
-    // Give the configuration and weight files for the model
-    // String modelConfiguration = "../model/yolov3.cfg";
-    // String modelWeights = "../model/yolov3.weights";
 
-    // Load the network
-    // Net net = readNetFromDarknet(modelConfiguration, modelWeights);
-    // net.setPreferableBackend(DNN_BACKEND_OPENCV);
-    // net.setPreferableTarget(DNN_TARGET_CPU);
+      // If the consumer has pulled all the frames, then we are done.
+      // Otherwise process the frame and add to the output video file.
+      if (frames_consumed == total_frames)
+      {
+        break;
+      } else {
+        // Pull frame from the queue.
+        cv::Mat frame = queue.Pop();
 
-    // for (auto& name : net.getUnconnectedOutLayersNames()) {
-    //   std::cout << "Layer: " << name << std::endl;
-    // }
-    
-//     namedWindow("Frame");
-//     Mat frame, blob;
-//     while(1) {
-//       cap >> frame;
-
-//       if (frame.empty()) {
-//         break;
-//       }
-
-//       blobFromImage(frame, blob, 1/255.0, Size(416, 416), Scalar(0,0,0), true, false);
-//       net.setInput(blob);
-//       vector<Mat> outs;
-//       net.forward(outs, net.getUnconnectedOutLayersNames());
-//       postprocess(frame, outs);
-
-//       imshow("Frame", frame);
-      
-//       waitKey(25);
-
-//     }
-  
-    producer_future.wait();
-    consumer_future.wait();
-    BOOST_ASSERT(producer_future.get() == consumer_future.get());
-
-    // At this point generate video and write out detection in a CSV.
-
-    std::cout << "Pushed all frames" << std::endl;
-    // cap.release();
-    // destroyAllWindows();  
-
-    return 0;
-}
-
-// Remove the bounding boxes with low confidence using non-maxima suppression
-void postprocess(Mat& frame, const vector<Mat>& outs)
-{
-    vector<int> classIds;
-    vector<float> confidences;
-    vector<Rect> boxes;
-    
-    for (size_t i = 0; i < outs.size(); ++i)
-    {
-        // Scan through all the bounding boxes output from the network and keep only the
-        // ones with high confidence scores. Assign the box's class label as the class
-        // with the highest score for the box.
-        float* data = (float*)outs[i].data;
-        for (int j = 0; j < outs[i].rows; ++j, data += outs[i].cols)
+        // If frame is not empty then process it.
+        if (!frame.empty())
         {
-            Mat scores = outs[i].row(j).colRange(5, outs[i].cols);
-            Point classIdPoint;
-            double confidence;
-            // Get the value and location of the maximum score
-            minMaxLoc(scores, 0, &confidence, 0, &classIdPoint);
-            if (confidence > confThreshold)
-            {
-                int centerX = (int)(data[0] * frame.cols);
-                int centerY = (int)(data[1] * frame.rows);
-                int width = (int)(data[2] * frame.cols);
-                int height = (int)(data[3] * frame.rows);
-                int left = centerX - width / 2;
-                int top = centerY - height / 2;
-                
-                classIds.push_back(classIdPoint.x);
-                confidences.push_back((float)confidence);
-                boxes.push_back(Rect(left, top, width, height));
-            }
+          // Apply detector to frame.
+          detector.Detect(frame);
+          // Write frame to output video file.
+          out_video.write(frame);
+          // Increment processed frame count.
+          frames_consumed++;
+          // Periodic logging.
+          if (frames_consumed % 100 == 0) {
+            std::cout << "Consumed Frame: " << frames_consumed << std::endl;
+          }
         }
+      }
     }
-    
-    // Perform non maximum suppression to eliminate redundant overlapping boxes with
-    // lower confidences
-    vector<int> indices;
-    NMSBoxes(boxes, confidences, confThreshold, nmsThreshold, indices);
-    for (size_t i = 0; i < indices.size(); ++i)
-    {
-        int idx = indices[i];
-        Rect box = boxes[idx];
-        drawPred(classIds[idx], confidences[idx], box.x, box.y,
-                 box.x + box.width, box.y + box.height, frame);
-    }
-}
 
-// Draw the predicted bounding box
-void drawPred(int classId, float conf, int left, int top, int right, int bottom, Mat& frame)
-{
-    //Draw a rectangle displaying the bounding box
-    rectangle(frame, Point(left, top), Point(right, bottom), Scalar(255, 178, 50), 3);
-    
-    //Get the label for the class name and its confidence
-    // string label = format("%.2f", conf);
-    // if (!classes.empty())
-    // {
-    //     CV_Assert(classId < (int)classes.size());
-    //     label = classes[classId] + ":" + label;
-    // }
-    
-    // //Display the label at the top of the bounding box
-    // int baseLine;
-    // Size labelSize = getTextSize(label, FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-    // top = max(top, labelSize.height);
-    // rectangle(frame, Point(left, top - round(1.5*labelSize.height)), Point(left + round(1.5*labelSize.width), top + baseLine), Scalar(255, 255, 255), FILLED);
-    // putText(frame, label, Point(left, top), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(0,0,0),1);
+    // Free resources associated with VideoWriter and close output video file.
+    out_video.release();
+
+    // Return total number of frames consumed.
+    return frames_consumed;
+  }, vm["output_fname"].as<std::string>(), vreader.GetFrameRate(), vreader.GetFourCC(), vreader.GetFrameSize());
+
+  producer_future.wait();
+  consumer_future.wait();
+  
+  // Assert that cosumer and procuder have processed an equal number of frames.
+  BOOST_ASSERT(producer_future.get() == consumer_future.get());
+
+  return 0;
 }

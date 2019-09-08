@@ -3,40 +3,56 @@
 
 #include <mutex>
 #include <deque>
-#include <condition_variable>
 
+// Templated First-In-First-Out (FIFO) queue supporting the addition
+// (push) and removal (pop) of items in multi-threaded setting
+// using locks.
 template <class T>
 class FIFOWorkQueue
 {
 public:
-    T pop();
-    void push(T&& msg);
+  // Removes and returns an item T from the queue.
+  T Pop();
+
+  // Adds an item T to the queueu.
+  void Push(T &&msg);
 
 private:
-    std::mutex _mutex;
-    std::condition_variable _cond;
-    std::deque<T> _queue;
+  // Mutex used to lock the queue during push and pop operations.
+  std::mutex _mutex;
+
+  // Double-ended queue used to implement FIFO item retrieval.
+  std::deque<T> _queue;
 };
 
 template <class T>
-T FIFOWorkQueue<T>::pop()
+T FIFOWorkQueue<T>::Pop()
 {
-    // perform queue modification under the lock
-    std::unique_lock<std::mutex> uLock(_mutex);
-    _cond.wait(uLock, [this] { return !_queue.empty(); });
-    T msg = std::move(_queue.front());
-    _queue.pop_front();
+  // Queue modification under the lock
+  std::lock_guard<std::mutex> uLock(_mutex);
 
-    return msg;
+  // If the queueu is not empty,
+  // then return the element at the front
+  // using std::move semantics.
+  T msg;
+  if (!_queue.empty())
+  {
+    msg = std::move(_queue.front());
+    _queue.pop_front();
+  }
+  return msg;
 }
 
 template <class T>
-void FIFOWorkQueue<T>::push(T&& msg)
-{    
-    // perform vector modification under the lock
-    std::lock_guard<std::mutex> uLock(_mutex);
-    _queue.push_back(msg);
-    _cond.notify_one();
+void FIFOWorkQueue<T>::Push(T &&msg)
+{
+  // Queue modification under the lock
+  std::lock_guard<std::mutex> uLock(_mutex);
+
+  // Push most recent elements to the back fo the queue.
+  // Use std::move to avoid copies and give queue
+  // full ownership of object.
+  _queue.push_back(std::move(msg));
 }
 
 #endif
