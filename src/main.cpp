@@ -25,7 +25,8 @@ int main(int argc, char *argv[])
     ("input_fname", value<string>(), "Path to input video file to be processed.")
     ("output_fname", value<string>(), "Path to save output video file.")
     ("model_config", value<string>(), "Path to object detection model configuration file.")
-    ("model_weights", value<string>(), "Path to object detection model weights.");
+    ("model_weights", value<string>(), "Path to object detection model weights.")
+    ("max_num_frames", value<int>()->default_value(-1), "Maximum number of frames to process.");
   variables_map vm;
   store(parse_command_line(argc, argv, desc), vm);
   notify(vm);
@@ -43,7 +44,7 @@ int main(int argc, char *argv[])
 
   // Producer asynchronous task uses VideoReader (vreader) to read video frames from a video
   // file and then pushes those frames to the FIFOWorkQueue (queue).
-  auto producer_future = std::async([&vreader, &queue, &prms] {
+  auto producer_future = std::async([&vreader, &queue, &prms](int max_num_frames) {
     // Counter keeps track of total frames read.
     int frames_produced = 0;
 
@@ -57,7 +58,7 @@ int main(int argc, char *argv[])
 
       // If no frame returned, then exit task.
       // Otherwise push frame onto FIFOWorkQueue and increment frame count.
-      if (!success)
+      if (!success || (max_num_frames != -1 && frames_produced == max_num_frames))
       {
         break;
       } else {
@@ -71,7 +72,7 @@ int main(int argc, char *argv[])
 
     // return total number of frames produced.
     return frames_produced;
-  });
+  }, vm["max_num_frames"].as<int>());
 
   // Instantiate ObjectDetector that will be used to detect objects in video frames.
   ObjectDetector detector(vm["model_config"].as<std::string>(), vm["model_weights"].as<std::string>());

@@ -5,7 +5,7 @@ add_definitions(-std=c++17)
 set(CXX_FLAGS "-Wall")
 set(CMAKE_CXX_FLAGS, "${CXX_FLAGS}")
 
-project(HelloWorld)
+project(ObjecteDetector)
 
 find_package(OpenCV 4.1 REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
@@ -18,8 +18,8 @@ include_directories(${Boost_INCLUDE_DIRS})
 find_package(Threads REQUIRED)
 
 file(GLOB project_SRC src/*.cpp src/*.h)
-add_executable(HelloWorld ${project_SRC})
+add_executable(ObjecteDetector ${project_SRC})
 
-target_link_libraries (HelloWorld ${OpenCV_LIBRARIES})
-target_link_libraries(HelloWorld ${Boost_LIBRARIES})
-target_link_libraries(HelloWorld Threads::Threads)
+target_link_libraries (ObjecteDetector ${OpenCV_LIBRARIES})
+target_link_libraries(ObjecteDetector ${Boost_LIBRARIES})
+target_link_libraries(ObjecteDetector Threads::Threads)
