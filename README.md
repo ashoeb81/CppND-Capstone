@@ -1,6 +1,6 @@
 # CPPND Capstone: Multithreaded Object Detection in Videos.
 
-This repository contains an implementation of a multithreaded application for detecting objects in a user-specified video.  Example output of running the application on the input video (`videos/project_video.mp4`) can is the resulting video (`videos/final_project_video_out.avi`).
+This repository contains an implementation of a multithreaded application for detecting objects in a user-specified video.  Example output of running the application on the input video (`videos/project_video.mp4`) is the resulting video (`videos/final_project_video_out.avi`).
 
 The application uses two asynchronous tasks launched from `main.cpp`.  The first asynchronous task (producer) reads frames from a video file using the `VideoReader` class (`src/video_reader.*`) and pushes those frames into a thread-safe queue implemented by the `FIFOWorkQueue` class (`src/fifo_work_queue.h`).
 
