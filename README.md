@@ -1,6 +1,6 @@
 # CPPND Capstone: Multithreaded Object Detection in Videos.
 
-This repository contains an implementation of a multithreaded application for detecting objects in a user-specified video.
+This repository contains an implementation of a multithreaded application for detecting objects in a user-specified video.  Example output of running the application on the input video (`videos/project_video.mp4`) can is the resulting video (`videos/final_project_video_out.avi`).
 
 The application uses two asynchronous tasks launched from `main.cpp`.  The first asynchronous task (producer) reads frames from a video file using the `VideoReader` class (`src/video_reader.*`) and pushes those frames into a thread-safe queue implemented by the `FIFOWorkQueue` class (`src/fifo_work_queue.h`).
 
@@ -36,16 +36,17 @@ wget https://github.com/pjreddie/darknet/blob/master/cfg/yolov3.cfg?raw=true -O 
 
 3. Compile: `cmake .. && make`
 
-4. Run it: 
+4. Run it on first 300 frames of video (**4 minutes runtime**)
 ```
-// Run on first 300 frames of video
 ./ObjecteDetector --input_fname=../videos/project_video.mp4 
    --output_fname=../videos/project_video_out.avi 
    --model_config=../model/yolov3.cfg 
    --model_weights=../model/yolov3.weights
    --max_num_frames=300
+```
 
-// Run on all frames
+5. Run on all frames (**16 minutes runtime**)
+```
 ./ObjecteDetector --input_fname=../videos/project_video.mp4 
    --output_fname=../videos/project_video_out.avi 
    --model_config=../model/yolov3.cfg 
@@ -121,3 +122,9 @@ Consumed Frames: 60 of 1257
 ### A mutex or lock is used in the project.
 
 * The project uses a mutex lock to implement a thread-safe work queue (`line 32 and 50 src/fifo_work_queue.h`)
+
+## Attributions
+
+* This projet's methods related to handling OpenCV DNN model inputs and outputs were inspired by the following the repository [learnopencv/ObjectDetection-YOLO](https://github.com/spmallick/learnopencv/tree/master/ObjectDetection-YOLO).
+
+* The video used in this repository was taken from the repository [udacity/CarND-Vehicle-Detection](udacity/CarND-Vehicle-Detection).
